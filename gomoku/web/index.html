@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>五子棋 AI · 人机对战</title>
+<style>
+  :root {
+    --bg: #1e1f26;
+    --panel: #2a2c38;
+    --border: #3a3d4d;
+    --text: #e8e9f0;
+    --muted: #9aa0b5;
+    --black: #1a1a1a;
+    --white: #f5f5f5;
+    --accent: #6c8cff;
+    --win: #ffd166;
+    /* 主题可变量（随难度覆盖） */
+    --a1: #1e2430;
+    --a2: #171b24;
+    --glow: rgba(108,140,255,.16);
+    --edge: rgba(108,140,255,.35);
+    --drift-dur: 26s;
+    --pulse-dur: 7s;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  /* ============ 背景：三层动效（只在最底层，不干扰棋盘） ============ */
+  .bg {
+    position: fixed; inset: 0; z-index: -2; overflow: hidden; pointer-events: none;
+    background:
+      radial-gradient(120% 90% at 15% 10%, var(--a1) 0%, transparent 55%),
+      radial-gradient(120% 90% at 85% 90%, var(--a2) 0%, transparent 55%),
+      var(--bg);
+    transition: background 1.2s ease;
+  }
+  .bg::before {
+    content: ""; position: absolute; inset: -40%;
+    background:
+      radial-gradient(closest-side, var(--glow), transparent 70%) 20% 30% / 55% 55% no-repeat,
+      radial-gradient(closest-side, var(--glow), transparent 70%) 78% 72% / 45% 45% no-repeat;
+    animation: drift var(--drift-dur) ease-in-out infinite alternate;
+    opacity: .9;
+  }
+  .bg::after {
+    content: ""; position: absolute; inset: 0;
+    background: radial-gradient(ellipse at center, transparent 45%, var(--glow) 100%);
+    animation: breathe var(--pulse-dur) ease-in-out infinite;
+    opacity: .8;
+  }
+  @keyframes drift {
+    0%   { transform: translate3d(-3%, -2%, 0) scale(1); }
+    100% { transform: translate3d(4%, 3%, 0) scale(1.12); }
+  }
+  @keyframes breathe {
+    0%, 100% { opacity: .35; }
+    50%      { opacity: .85; }
+  }
+  .grid-fx {
+    position: fixed; inset: 0; z-index: -1; pointer-events: none;
+    opacity: 0; transition: opacity .8s ease;
+    background-image:
+      linear-gradient(var(--edge) 1px, transparent 1px),
+      linear-gradient(90deg, var(--edge) 1px, transparent 1px);
+    background-size: 64px 64px, 64px 64px;
+    mask-image: radial-gradient(ellipse at center, #000 25%, transparent 78%);
+    -webkit-mask-image: radial-gradient(ellipse at center, #000 25%, transparent 78%);
+  }
+
+  /* ============ 三档主题：越难越紧张 ============ */
+  body[data-diff="normal"] {
+    --a1: #1b2333; --a2: #141a26;
+    --glow: rgba(108,140,255,.13);
+    --edge: rgba(108,140,255,.18);
+    --accent: #6c8cff;
+    --panel: #262c3a; --border: #36405a;
+    --drift-dur: 30s; --pulse-dur: 9s;
+  }
+  body[data-diff="advanced"] {
+    --a1: #2b1d2e; --a2: #1d1620;
+    --glow: rgba(240,148,66,.20);
+    --edge: rgba(240,148,66,.26);
+    --accent: #e8934a;
+    --panel: #2f2532; --border: #4a3a45;
+    --drift-dur: 16s; --pulse-dur: 5s;
+  }
+  body[data-diff="advanced"] .bg::before {
+    animation: drift 16s ease-in-out infinite alternate,
+               sweep 9s linear infinite;
+  }
+  @keyframes sweep {
+    0%   { filter: hue-rotate(0deg) saturate(1); }
+    100% { filter: hue-rotate(28deg) saturate(1.25); }
+  }
+  body[data-diff="impossible"] {
+    --a1: #310d10; --a2: #140608;
+    --glow: rgba(255,59,59,.26);
+    --edge: rgba(255,80,80,.30);
+    --accent: #ff4b4b;
+    --panel: #241216; --border: #54222a;
+    --drift-dur: 8s; --pulse-dur: 2.6s;
+  }
+  body[data-diff="impossible"] .bg::after { animation: heartbeat 2.6s ease-in-out infinite; }
+  @keyframes heartbeat {
+    0%, 100% { opacity: .35; transform: scale(1); }
+    14%      { opacity: .95; transform: scale(1.03); }
+    28%      { opacity: .45; transform: scale(1); }
+    42%      { opacity: .80; transform: scale(1.02); }
+    56%      { opacity: .40; transform: scale(1); }
+  }
+  body[data-diff="impossible"] .grid-fx {
+    opacity: .55;
+    animation: gridslide 7s linear infinite;
+  }
+  @keyframes gridslide {
+    0%   { background-position: 0 0, 0 0; }
+    100% { background-position: 64px 64px, 64px 64px; }
+  }
+  body[data-diff="normal"] .board-box     { box-shadow: 0 0 0 1px var(--edge), 0 10px 40px -18px var(--glow); }
+  body[data-diff="advanced"] .board-box   { box-shadow: 0 0 0 1px var(--edge), 0 0 42px -8px var(--glow); }
+  body[data-diff="impossible"] .board-box {
+    box-shadow: 0 0 0 1px var(--edge), 0 0 60px -4px var(--glow);
+    animation: edgepulse 2.6s ease-in-out infinite;
+  }
+  @keyframes edgepulse {
+    0%, 100% { box-shadow: 0 0 0 1px var(--edge), 0 0 34px -8px var(--glow); }
+    50%      { box-shadow: 0 0 0 1px var(--edge), 0 0 72px 0px var(--glow); }
+  }
+
+  body {
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    background: transparent;
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    transition: color .6s;
+  }
+  .wrap { display: flex; gap: 28px; align-items: flex-start; flex-wrap: wrap; justify-content: center; }
+  .board-box { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 18px; }
+  canvas { display: block; cursor: pointer; border-radius: 6px; }
+  .panel { width: 300px; display: flex; flex-direction: column; gap: 14px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 16px; }
+  h1 { font-size: 18px; font-weight: 600; margin-bottom: 6px; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 14px; }
+  .status { font-size: 15px; font-weight: 600; padding: 10px 12px; border-radius: 8px; background: #33364a; text-align: center; }
+  .status.win { background: #4a3f1f; color: var(--win); }
+  .status.my-turn { background: #234a2e; color: #8be39b; }
+  .status.ai-turn { background: #33364a; color: var(--muted); animation: pulse 1s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity: .55 } 50% { opacity: 1 } }
+  .row { display: flex; gap: 8px; margin-bottom: 8px; }
+  .row label { font-size: 13px; color: var(--muted); align-self: center; min-width: 70px; }
+  select, input { background: #1e1f26; color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 7px 9px; font-size: 13px; width: 100%; }
+  .btn {
+    display: block; width: 100%; padding: 11px; border: none; border-radius: 8px;
+    font-size: 14px; font-weight: 600; cursor: pointer; transition: .15s; text-align: center;
+  }
+  .btn.primary { background: var(--accent); color: #fff; }
+  .btn.primary:hover { filter: brightness(1.12); }
+  .btn.ghost { background: #33364a; color: var(--text); }
+  .btn.ghost:hover { background: #3d4050; }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+  .btn.danger { background: #5a2a2a; color: #ffb3b3; }
+
+  /* 棋盘左侧的「AI 对弈」入口：竖排标签，贴着棋局 */
+  .duel-tab {
+    align-self: center;
+    writing-mode: vertical-rl;
+    text-orientation: upright;
+    text-decoration: none;
+    display: flex; align-items: center; justify-content: center;
+    gap: 10px;
+    padding: 20px 11px;
+    font-size: 14px; font-weight: 600;
+    letter-spacing: 5px;
+    color: var(--muted);
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-right: none;
+    border-radius: 12px 0 0 12px;
+    margin-right: -28px;          /* 贴到棋盘左侧，消除 wrap 的间距 */
+    position: relative; z-index: 2;
+    transition: .2s;
+  }
+  .duel-tab:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+    box-shadow: -6px 0 26px -12px var(--accent);
+    transform: translateX(-2px);
+  }
+  .duel-tab .arrow { writing-mode: horizontal-tb; font-size: 12px; opacity: .7; }
+  .stats { font-size: 12px; color: var(--muted); line-height: 1.7; font-family: monospace; }
+  .legend { display: flex; gap: 16px; font-size: 13px; color: var(--muted); margin-top: 10px; }
+  .dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
+  .dot.b { background: var(--black); border: 1px solid #555; }
+  .dot.w { background: var(--white); border: 1px solid #ccc; }
+
+  /* 难度按钮 */
+  .diffs { display: flex; flex-direction: column; gap: 8px; }
+  .diff {
+    display: flex; align-items: center; justify-content: center;
+    padding: 12px; border-radius: 10px; cursor: pointer;
+    background: rgba(255,255,255,.04);
+    border: 1px solid var(--border);
+    color: var(--text);
+    transition: .2s;
+  }
+  .diff:hover { background: rgba(255,255,255,.08); transform: translateX(2px); }
+  .diff .diff-name { font-size: 15px; font-weight: 700; letter-spacing: 1px; }
+  .diff.active {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+    box-shadow: 0 0 0 1px var(--accent), 0 0 22px -6px var(--accent);
+  }
+  .diff.active .diff-name { color: var(--accent); }
+</style>
+</head>
+<body data-diff="advanced">
+<div class="bg"></div>
+<div class="grid-fx"></div>
+<div class="wrap">
+  <a class="duel-tab" href="/duel" target="_blank" title="观看两个 AI 互相对弈">
+    <span class="arrow">◀</span>AI 对弈
+  </a>
+  <div class="board-box">
+    <canvas id="board" width="604" height="604"></canvas>
+  </div>
+  <div class="panel">
+    <div class="card">
+      <h1>五子棋 AI</h1>
+      <div class="sub">鼠标点击棋盘落子 · 你执黑，AI 执白</div>
+      <div class="status" id="status">载入中…</div>
+    </div>
+
+    <div class="card">
+      <div class="diffs" id="diffs">
+        <button class="diff" data-lv="normal">
+          <span class="diff-name">普通</span>
+        </button>
+        <button class="diff" data-lv="advanced">
+          <span class="diff-name">进阶</span>
+        </button>
+        <button class="diff" data-lv="impossible">
+          <span class="diff-name">不可能</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="row">
+        <label>你执</label>
+        <select id="colorSel">
+          <option value="1" selected>黑棋（先手）</option>
+          <option value="2">白棋（后手）</option>
+        </select>
+      </div>
+      <button class="btn primary" id="applyBtn">应用并开局</button>
+    </div>
+    <div class="card">
+      <button class="btn ghost" id="undoBtn">悔棋一步</button>
+      <div style="height:8px"></div>
+      <button class="btn ghost" id="newBtn">重新开局</button>
+    </div>
+    <div class="card">
+      <div class="sub" style="margin-bottom:6px">AI 决策信息</div>
+      <div class="stats" id="stats">—</div>
+      <div class="legend">
+        <span><span class="dot b"></span>你</span>
+        <span><span class="dot w"></span>AI</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const SIZE = 15;
+const cv = document.getElementById('board');
+const ctx = cv.getContext('2d');
+const CELL = cv.width / (SIZE + 1); // 留出边距
+
+let board = [];        // SIZE x SIZE, 0/1/2
+let currentSide = 1;   // 1=黑 2=白
+let humanColor = 1;
+let difficulty = 'advanced';
+let gameOver = false;
+let winner = 0;
+let lastMove = null;   // {r,c}
+let locked = false;    // 等待 AI 响应时禁止落子
+
+// ---------- 绘制 ----------
+function draw() {
+  const pad = CELL;
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  // 背景
+  ctx.fillStyle = '#d8a75b';
+  ctx.fillRect(0, 0, cv.width, cv.height);
+
+  // 网格线
+  ctx.strokeStyle = '#6a4f1d';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < SIZE; i++) {
+    const p = pad + i * CELL;
+    ctx.beginPath(); ctx.moveTo(pad, p); ctx.lineTo(cv.width - pad, p); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(p, pad); ctx.lineTo(p, cv.height - pad); ctx.stroke();
+  }
+  // 星位
+  const stars = [[3,3],[3,11],[11,3],[11,11],[7,7]];
+  ctx.fillStyle = '#6a4f1d';
+  for (const [r,c] of stars) {
+    ctx.beginPath();
+    ctx.arc(pad + c*CELL, pad + r*CELL, 4, 0, Math.PI*2);
+    ctx.fill();
+  }
+
+  // 棋子
+  for (let r = 0; r < SIZE; r++) {
+    for (let c = 0; c < SIZE; c++) {
+      const v = board[r][c];
+      if (v === 0) continue;
+      const x = pad + c*CELL, y = pad + r*CELL;
+      const rad = CELL * 0.42;
+      ctx.beginPath();
+      ctx.arc(x, y, rad, 0, Math.PI*2);
+      ctx.fillStyle = v === 1 ? '#1a1a1a' : '#f5f5f5';
+      ctx.fill();
+      ctx.strokeStyle = v === 1 ? '#000' : '#ccc';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+  }
+  // 最后一步标记
+  if (lastMove) {
+    const x = pad + lastMove.c*CELL, y = pad + lastMove.r*CELL;
+    ctx.strokeStyle = '#ff3b30';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(x, y, 6, 0, Math.PI*2);
+    ctx.stroke();
+  }
+
+  // hover 预览
+}
+
+// ---------- 状态刷新 ----------
+function updateStatus() {
+  const el = document.getElementById('status');
+  const me = (humanColor === 1) ? '黑棋' : '白棋';
+  const ai = (humanColor === 1) ? '白棋' : '黑棋';
+  if (gameOver) {
+    if (winner === 0) { el.textContent = '平局'; el.className = 'status'; }
+    else if (winner === humanColor) { el.textContent = '🎉 你赢了！'; el.className = 'status win'; }
+    else { el.textContent = `😞 AI（${ai}）获胜`; el.className = 'status win'; }
+  } else {
+    if (currentSide === humanColor) { el.textContent = `轮到你（${me}）落子`; el.className = 'status my-turn'; }
+    else { el.textContent = `AI（${ai}）思考中…`; el.className = 'status ai-turn'; }
+  }
+}
+
+function render(state) {
+  board = state.grid;
+  currentSide = state.side;
+  humanColor = state.human_color;
+  gameOver = state.game_over;
+  winner = state.winner;
+  lastMove = state.last_move ? {r: state.last_move[0], c: state.last_move[1]} : null;
+  locked = false;
+
+  // 难度与主题同步
+  if (state.difficulty && state.difficulty !== difficulty) {
+    difficulty = state.difficulty;
+  }
+  document.body.dataset.diff = difficulty;
+  document.querySelectorAll('.diff').forEach(b => b.classList.toggle('active', b.dataset.lv === difficulty));
+
+  draw();
+  updateStatus();
+
+  // 统计信息
+  const st = state.stats;
+  if (st && st.reason) {
+    let txt = `决策方式: ${st.reason}`;
+    if (st.depth !== undefined) txt += `\n深度: ${st.depth}`;
+    if (st.nodes !== undefined) txt += `\n搜索节点: ${st.nodes}`;
+    if (st.time !== undefined) txt += `\n耗时: ${(st.time*1000).toFixed(0)} ms`;
+    if (st.vcf_len !== undefined) txt += `\nVCF 长度: ${st.vcf_len}`;
+    document.getElementById('stats').textContent = txt;
+  }
+}
+
+async function api(path, body) {
+  const opt = body ? { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) } : { method: 'GET' };
+  const res = await fetch(path, opt);
+  return res.json();
+}
+
+async function refresh() {
+  const d = await api('/api/state');
+  render(d.state);
+}
+
+async function startNew() {
+  const d = await api('/api/new');
+  render(d.state);
+  await maybeAiMove();
+}
+
+async function applySettings() {
+  const color = parseInt(document.getElementById('colorSel').value);
+  const d = await api('/api/set', { human_color: color, difficulty: difficulty });
+  render(d.state);
+  await maybeAiMove();
+}
+
+// 切换难度：立即改主题 + 通知后端 + 重开
+async function setDifficulty(lv, restart = true) {
+  difficulty = lv;
+  document.body.dataset.diff = lv;
+  document.querySelectorAll('.diff').forEach(b => b.classList.toggle('active', b.dataset.lv === lv));
+  if (restart) {
+    const color = parseInt(document.getElementById('colorSel').value);
+    const d = await api('/api/set', { human_color: color, difficulty: lv });
+    render(d.state);
+    await maybeAiMove();
+  }
+}
+
+// 若开局就是 AI 先手，自动让它走第一步
+async function maybeAiMove() {
+  if (gameOver) return;
+  if (currentSide === humanColor) return;
+  locked = true;
+  setThinking();
+  const a = await api('/api/ai', {});
+  render(a.state);
+}
+
+// ---------- 点击落子：先立刻显示自己的子，再让 AI 思考 ----------
+cv.addEventListener('click', async (e) => {
+  if (locked || gameOver) return;
+  if (currentSide !== humanColor) return;
+
+  const rect = cv.getBoundingClientRect();
+  const scaleX = cv.width / rect.width;
+  const scaleY = cv.height / rect.height;
+  const mx = (e.clientX - rect.left) * scaleX;
+  const my = (e.clientY - rect.top) * scaleY;
+
+  const pad = CELL;
+  const c = Math.round((mx - pad) / CELL);
+  const r = Math.round((my - pad) / CELL);
+
+  if (r < 0 || r >= SIZE || c < 0 || c >= SIZE) return;
+  if (board[r][c] !== 0) return;
+
+  // 距离最近交点太远则忽略
+  const dx = mx - (pad + c*CELL), dy = my - (pad + r*CELL);
+  if (Math.hypot(dx, dy) > CELL * 0.5) return;
+
+  // ① 立即本地落下自己的棋子（不等服务器），给出即时反馈
+  locked = true;
+  board[r][c] = humanColor;
+  lastMove = { r, c };
+  currentSide = 3 - humanColor;    // 视为轮到 AI
+  draw();
+  setThinking();
+
+  // ② 把这一手提交给后端（只落子，不含 AI 走法）
+  const d = await api('/api/move', { r, c });
+  if (!d.ok) {
+    // 落子被拒（极少见），用服务端状态覆盖回来
+    render(d.state);
+    return;
+  }
+  board = d.state.grid;
+  currentSide = d.state.side;
+  lastMove = d.state.last_move ? { r: d.state.last_move[0], c: d.state.last_move[1] } : null;
+  gameOver = d.state.game_over;
+  winner = d.state.winner;
+  draw();
+  updateStatus();
+
+  if (gameOver) {
+    locked = false;
+    return;                        // 自己这一手就赢了/和了，不必让 AI 再走
+  }
+
+  // ③ 再请求 AI 思考并落子
+  const a = await api('/api/ai', {});
+  render(a.state);
+});
+
+// "AI 思考中"指示
+function setThinking() {
+  const el = document.getElementById('status');
+  const aiName = (humanColor === 1) ? '白棋' : '黑棋';
+  el.textContent = `AI（${aiName}）思考中…`;
+  el.className = 'status ai-turn';
+}
+
+// ---------- 按钮 ----------
+document.getElementById('applyBtn').addEventListener('click', applySettings);
+document.getElementById('newBtn').addEventListener('click', startNew);
+document.getElementById('undoBtn').addEventListener('click', async () => {
+  if (locked) return;
+  const d = await api('/api/undo');
+  render(d.state);
+});
+document.getElementById('colorSel').addEventListener('change', async () => {
+  await applySettings();      // 换边 = 应用设置并重开
+});
+
+// 难度按钮
+document.querySelectorAll('.diff').forEach(btn => {
+  btn.addEventListener('click', () => setDifficulty(btn.dataset.lv, true));
+});
+
+// ---------- 启动 ----------
+startNew();
+</script>
+</body>
+</html>

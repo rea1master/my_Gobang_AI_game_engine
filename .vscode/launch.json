@@ -1,0 +1,22 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "五子棋人机对战",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/gomoku/play.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "五子棋自对弈(20局)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/gomoku/arena.py",
+            "args": ["--games", "20", "--time", "1.0", "--depth", "8"],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}

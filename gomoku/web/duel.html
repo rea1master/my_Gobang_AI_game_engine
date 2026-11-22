@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 对弈 · Gomoku Duel</title>
+<style>
+  :root {
+    --bg: #1e1f26;
+    --panel: #2a2c38;
+    --border: #3a3d4d;
+    --text: #e8e9f0;
+    --muted: #9aa0b5;
+    --accent: #6c8cff;
+    --win: #ffd166;
+    /* 难度颜色 */
+    --lv-normal: #6c8cff;
+    --lv-advanced: #e8934a;
+    --lv-impossible: #ff4b4b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex; align-items: center; justify-content: center;
+    padding: 20px;
+  }
+
+  .wrap {
+    display: flex; align-items: center; justify-content: center;
+    gap: 18px;
+  }
+
+  /* ---------------- 左右两侧：黑白双方 ---------------- */
+  .side {
+    --lv: var(--lv-advanced);
+    width: 196px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 16px 14px;
+    opacity: .5;
+    filter: grayscale(.25);
+    transition: opacity .35s ease, filter .35s ease, border-color .35s ease, box-shadow .35s ease;
+    position: relative;
+    overflow: hidden;
+  }
+  /* 顶部一条难度色带 */
+  .side::before {
+    content: "";
+    position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    background: var(--lv);
+    opacity: .55;
+    transition: opacity .35s;
+  }
+  .side.active {
+    opacity: 1;
+    filter: none;
+    border-color: var(--lv);
+    animation: sidePulse 1.7s ease-in-out infinite;
+  }
+  .side.active::before { opacity: 1; }
+  @keyframes sidePulse {
+    0%, 100% { box-shadow: 0 0 0 1px var(--lv), 0 0 20px -8px var(--lv); }
+    50%      { box-shadow: 0 0 0 1px var(--lv), 0 0 44px -4px var(--lv); }
+  }
+  .side.winner {
+    opacity: 1; filter: none;
+    border-color: var(--win);
+    box-shadow: 0 0 0 1px var(--win), 0 0 40px -6px var(--win);
+  }
+
+  .side-head {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 15px; font-weight: 700; letter-spacing: 1px;
+  }
+  .dot {
+    width: 15px; height: 15px; border-radius: 50%;
+    border: 1px solid #666; display: inline-block;
+  }
+  .dot.b { background: #141414; }
+  .dot.w { background: #f5f5f5; border-color: #ccc; }
+
+  /* 难度徽标 */
+  .lv-badge {
+    margin-top: 10px;
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 12.5px; font-weight: 700; letter-spacing: 2px;
+    color: var(--lv);
+    border: 1px solid var(--lv);
+    background: color-mix(in srgb, var(--lv) 14%, transparent);
+  }
+
+  /* 轮到谁 */
+  .turn-chip {
+    margin-top: 10px;
+    font-size: 11.5px; letter-spacing: 2px;
+    color: var(--lv);
+    opacity: 0;
+    transition: opacity .3s;
+  }
+  .side.active .turn-chip { opacity: 1; animation: chipBlink 1.4s ease-in-out infinite; }
+  @keyframes chipBlink { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
+
+  .side select {
+    width: 100%; margin-top: 10px;
+    background: #1e1f26; color: var(--text);
+    border: 1px solid var(--border); border-radius: 7px;
+    padding: 7px 9px; font-size: 12.5px;
+    font-family: inherit; cursor: pointer;
+    transition: border-color .2s;
+  }
+  .side select:hover { border-color: var(--lv); }
+  .side select:focus { outline: none; border-color: var(--lv); }
+
+  .side-info {
+    margin-top: 12px; padding-top: 10px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+  }
+  .kv { display: flex; justify-content: space-between; padding: 2.5px 0; }
+  .kv .k { color: var(--muted); }
+  .kv .v { color: var(--text); font-variant-numeric: tabular-nums; }
+  .side.active .kv .v { color: var(--text); }
+
+  /* ---------------- 中间：棋盘 ---------------- */
+  .center { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+
+  .board-box {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 14px;
+  }
+  canvas { display: block; border-radius: 6px; cursor: default; }
+
+  .status {
+    width: 100%;
+    font-size: 14px; font-weight: 600;
+    padding: 9px 12px; border-radius: 8px;
+    background: #33364a; text-align: center;
+  }
+  .status.end { background: #4a3f1f; color: var(--win); }
+
+  .btn-continue {
+    width: 100%; padding: 13px;
+    background: var(--accent); color: #fff;
+    border: none; border-radius: 9px;
+    font-size: 15px; font-weight: 700; letter-spacing: 6px;
+    cursor: pointer; transition: .15s;
+  }
+  .btn-continue:hover:not(:disabled) { filter: brightness(1.12); }
+  .btn-continue:disabled {
+    background: #33364a; color: var(--muted);
+    cursor: not-allowed; letter-spacing: 2px;
+  }
+
+  .btn-ghost {
+    width: 100%; padding: 9px;
+    background: #33364a; color: var(--text);
+    border: none; border-radius: 8px;
+    font-size: 13px; cursor: pointer; transition: .15s;
+  }
+  .btn-ghost:hover { background: #3d4050; }
+
+  .hint { font-size: 11.5px; color: var(--muted); text-align: center; }
+
+  /* 左上角返回入口 */
+  .back-link {
+    position: fixed; top: 18px; left: 22px; z-index: 10;
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 9px 15px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    color: var(--muted);
+    font-size: 13px; font-weight: 600;
+    text-decoration: none;
+    transition: .2s;
+  }
+  .back-link:hover {
+    color: var(--text);
+    border-color: var(--accent);
+    box-shadow: 0 0 22px -8px var(--accent);
+    transform: translateX(-2px);
+  }
+  .back-link .ar { font-size: 14px; opacity: .85; }
+</style>
+</head>
+<body>
+<a class="back-link" href="/"><span class="ar">←</span>返回人机对弈</a>
+<div class="wrap">
+
+  <!-- 左：黑方 -->
+  <aside class="side" id="sideBlack">
+    <div class="side-head"><span class="dot b"></span>黑 方</div>
+    <div class="lv-badge" id="lvBadgeB">进阶</div>
+    <div class="turn-chip" id="chipB">▼ 正在思考</div>
+    <select id="selBlack">
+      <option value="normal">普通</option>
+      <option value="advanced" selected>进阶</option>
+      <option value="impossible">不可能</option>
+    </select>
+    <div class="side-info">
+      <div class="kv"><span class="k">上一手决策</span><span class="v" id="rB">—</span></div>
+      <div class="kv"><span class="k">搜索深度</span><span class="v" id="dB">—</span></div>
+      <div class="kv"><span class="k">耗时</span><span class="v" id="tB">—</span></div>
+    </div>
+  </aside>
+
+  <!-- 中：棋盘 -->
+  <main class="center">
+    <div class="board-box">
+      <canvas id="board" width="520" height="520"></canvas>
+    </div>
+    <div class="status" id="status">载入中…</div>
+    <button class="btn-continue" id="btnStep">继 续</button>
+    <button class="btn-ghost" id="btnNew">重新开局</button>
+    <div class="hint">选好双方难度后点「开始」· 之后每按一次走一子 · 空格/回车同效</div>
+  </main>
+
+  <!-- 右：白方 -->
+  <aside class="side" id="sideWhite">
+    <div class="side-head"><span class="dot w"></span>白 方</div>
+    <div class="lv-badge" id="lvBadgeW">普通</div>
+    <div class="turn-chip" id="chipW">▼ 正在思考</div>
+    <select id="selWhite">
+      <option value="normal" selected>普通</option>
+      <option value="advanced">进阶</option>
+      <option value="impossible">不可能</option>
+    </select>
+    <div class="side-info">
+      <div class="kv"><span class="k">上一手决策</span><span class="v" id="rW">—</span></div>
+      <div class="kv"><span class="k">搜索深度</span><span class="v" id="dW">—</span></div>
+      <div class="kv"><span class="k">耗时</span><span class="v" id="tW">—</span></div>
+    </div>
+  </aside>
+
+</div>
+
+<script>
+const SIZE = 15;
+const cv = document.getElementById('board');
+const ctx = cv.getContext('2d');
+const CELL = cv.width / (SIZE + 1);
+const PAD = CELL;
+
+const LV_COLOR = {
+  normal: '#6c8cff',
+  advanced: '#e8934a',
+  impossible: '#ff4b4b'
+};
+const LV_NAME = { normal: '普通', advanced: '进阶', impossible: '不可能' };
+const REASON = {
+  immediate_win: '一步成五',
+  block: '堵五连',
+  block_multi: '堵多点',
+  vcf: '连续冲四',
+  vct: '双威胁',
+  defend_open3: '防活三',
+  block_double_threat: '抢双威胁点',
+  search: '搜索决策',
+  blunder: '随机失误'
+};
+
+let board = [];
+let lastMove = null;
+let over = false;
+let winner = 0;
+let moveCount = 0;
+let nextSide = 1;
+let levels = {black: 'advanced', white: 'normal'};
+let busy = false;
+let started = false;     // 是否已点击「开始」
+
+// ---------------- 绘制（与人机对战页面同一套风格） ----------------
+function draw() {
+  ctx.clearRect(0, 0, cv.width, cv.height);
+
+  // 木纹底色
+  ctx.fillStyle = '#d8a75b';
+  ctx.fillRect(0, 0, cv.width, cv.height);
+
+  // 网格
+  ctx.strokeStyle = '#6a4f1d';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < SIZE; i++) {
+    const p = PAD + i * CELL;
+    ctx.beginPath(); ctx.moveTo(PAD, p); ctx.lineTo(cv.width - PAD, p); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(p, PAD); ctx.lineTo(p, cv.height - PAD); ctx.stroke();
+  }
+
+  // 星位
+  ctx.fillStyle = '#6a4f1d';
+  [[3,3],[3,11],[11,3],[11,11],[7,7]].forEach(([r,c]) => {
+    ctx.beginPath();
+    ctx.arc(PAD + c*CELL, PAD + r*CELL, 3.5, 0, Math.PI*2);
+    ctx.fill();
+  });
+
+  // 棋子
+  for (let r = 0; r < SIZE; r++) {
+    for (let c = 0; c < SIZE; c++) {
+      const v = board[r][c];
+      if (!v) continue;
+      const x = PAD + c*CELL, y = PAD + r*CELL, rad = CELL*0.42;
+      ctx.beginPath();
+      ctx.arc(x, y, rad, 0, Math.PI*2);
+      ctx.fillStyle = v === 1 ? '#1a1a1a' : '#f5f5f5';
+      ctx.fill();
+      ctx.strokeStyle = v === 1 ? '#000' : '#ccc';
+      ctx.lineWidth = 1.4;
+      ctx.stroke();
+    }
+  }
+
+  // 最后一手
+  if (lastMove) {
+    const x = PAD + lastMove.c*CELL, y = PAD + lastMove.r*CELL;
+    ctx.strokeStyle = '#ff3b30';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(x, y, CELL*0.22, 0, Math.PI*2);
+    ctx.stroke();
+  }
+}
+
+// ---------------- 侧栏 ----------------
+function sideEl(isBlack) {
+  return document.getElementById(isBlack ? 'sideBlack' : 'sideWhite');
+}
+
+function paintSide(isBlack, lv) {
+  const el = sideEl(isBlack);
+  el.style.setProperty('--lv', LV_COLOR[lv] || LV_COLOR.advanced);
+  document.getElementById(isBlack ? 'lvBadgeB' : 'lvBadgeW').textContent = LV_NAME[lv] || lv;
+}
+
+function resetSideInfo(isBlack) {
+  document.getElementById(isBlack ? 'rB' : 'rW').textContent = '—';
+  document.getElementById(isBlack ? 'dB' : 'dW').textContent = '—';
+  document.getElementById(isBlack ? 'tB' : 'tW').textContent = '—';
+}
+
+function fillSideInfo(isBlack, last) {
+  document.getElementById(isBlack ? 'rB' : 'rW').textContent = REASON[last.reason] || last.reason || '—';
+  document.getElementById(isBlack ? 'dB' : 'dW').textContent =
+    (last.depth === null || last.depth === undefined) ? '—' : last.depth;
+  document.getElementById(isBlack ? 'tB' : 'tW').textContent =
+    (last.time === null || last.time === undefined) ? '—' : Math.round(last.time * 1000) + ' ms';
+}
+
+function render(s) {
+  board = s.grid;
+  over = s.over;
+  winner = s.winner;
+  moveCount = s.move_count;
+  nextSide = s.side;
+  levels = s.levels;
+
+  // 档位标签与颜色
+  paintSide(true, levels.black);
+  paintSide(false, levels.white);
+  document.getElementById('selBlack').value = levels.black;
+  document.getElementById('selWhite').value = levels.white;
+
+  const lt = s.last;
+  lastMove = lt ? {r: lt.r, c: lt.c, color: lt.color} : null;
+  started = (s.move_count > 0) || over;
+  draw();
+
+  // 谁的回合 → 谁高亮（未开始时两侧都安静）
+  const sb = sideEl(true), sw = sideEl(false);
+  sb.classList.remove('active', 'winner');
+  sw.classList.remove('active', 'winner');
+  if (over) {
+    if (winner === 1) sb.classList.add('winner');
+    else if (winner === 2) sw.classList.add('winner');
+  } else if (started) {
+    if (nextSide === 1) sb.classList.add('active');
+    else sw.classList.add('active');
+  }
+
+  if (lt) fillSideInfo(lt.color === 1, lt);
+
+  // 状态行（难度已由左右两侧显示，正文不再重复）
+  const st = document.getElementById('status');
+  if (!started) {
+    st.textContent = '对局未开始';
+    st.classList.remove('end');
+  } else if (over) {
+    if (winner === 0) {
+      st.textContent = `平局 · 共 ${moveCount} 手`;
+    } else {
+      st.textContent = `${winner === 1 ? '黑方' : '白方'}获胜 · 共 ${moveCount} 手`;
+    }
+    st.classList.add('end');
+  } else {
+    st.textContent = `第 ${moveCount} 手 · 轮到${nextSide === 1 ? '黑方' : '白方'}`;
+    st.classList.remove('end');
+  }
+
+  // 注意：这里只用 over 控制禁用；busy 由调用方自己管，
+  // 否则 render 在 await 期间被调用会把按钮永久锁死（曾经的 bug）
+  const btn = document.getElementById('btnStep');
+  btn.disabled = over;
+  btn.textContent = over ? '对 局 结 束'
+                        : (started ? '继 续' : '开 始');
+}
+
+async function api(path, body) {
+  const opt = body
+    ? {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)}
+    : {method: 'GET'};
+  const r = await fetch(path, opt);
+  return r.json();
+}
+
+async function step() {
+  if (busy || over || !started) return;
+  busy = true;
+  const btn = document.getElementById('btnStep');
+  btn.disabled = true;
+  btn.textContent = '思 考 中…';
+  let d = null;
+  try {
+    d = await api('/api/duel/step', {});
+  } finally {
+    busy = false;
+  }
+  if (d) render(d.state);      // render 会按 over/started 恢复按钮文字与可用状态
+}
+
+// 主按钮：未开始时 → 开局并落第一子；已开始 → 走一子
+async function onPrimary() {
+  if (busy) return;
+  const btn = document.getElementById('btnStep');
+
+  if (!started) {
+    const lb = document.getElementById('selBlack').value;
+    const lw = document.getElementById('selWhite').value;
+    busy = true;
+    btn.disabled = true;
+    btn.textContent = '开 局 中…';
+    let d = null;
+    try {
+      await api('/api/duel/new', {black: lb, white: lw});
+      resetSideInfo(true);
+      resetSideInfo(false);
+      d = await api('/api/duel/step', {});   // 黑方落第一子
+    } finally {
+      busy = false;
+    }
+    if (d) render(d.state);
+    return;
+  }
+
+  await step();
+}
+
+async function newGame() {
+  const lb = document.getElementById('selBlack').value;
+  const lw = document.getElementById('selWhite').value;
+  busy = true;
+  let d = null;
+  try {
+    d = await api('/api/duel/new', {black: lb, white: lw});
+  } finally {
+    busy = false;
+  }
+  resetSideInfo(true);
+  resetSideInfo(false);
+  if (d) render(d.state);   // move_count = 0 → 按钮回到「开始」
+}
+
+document.getElementById('btnStep').addEventListener('click', onPrimary);
+document.getElementById('btnNew').addEventListener('click', newGame);
+document.addEventListener('keydown', (e) => {
+  if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); onPrimary(); }
+});
+
+// 启动：进入页面先重置成「未开始」空盘，等用户点「开始」
+(async () => {
+  await newGame();
+})();
+</script>
+</body>
+</html>

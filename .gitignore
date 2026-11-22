@@ -1,0 +1,23 @@
+# 忽略 Python 运行产物
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# 编辑器 / 系统
+.DS_Store
+Thumbs.db
+*.log
+report/~$*.docx
+
+# 不纳入版本库的文件
+# 1) 学校题目文件（版权 + 体积）
+2026秋-*.docx
+# 2) 解析题目的临时工具与从 docx 抽出的图片素材
+tools/
+# 3) 含个人信息的报告成品、模板截图、校徽原图
+report/*.docx
+第一页格式.png
+图片1.png
